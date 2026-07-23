@@ -19,6 +19,5 @@ auto main() -> int
    khct::StrongEnum<TestA> strong1{khct::StrongEnum<TestA>::tags.value1};
    strong1.visit(
       khct::OverloadSet{
-         [](khct::StrongEnumTag<TestA, TestA::value1>) { std::puts("value1"); },
-         [](khct::StrongEnumTag<TestA, TestA::value2>) { std::puts("value2"); }});
+         [](khct::Tag<TestA::value1>) { std::puts("value1"); }, [](khct::Tag<TestA::value2>) { std::puts("value2"); }});
 }

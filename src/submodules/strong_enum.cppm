@@ -111,6 +111,7 @@ public:
    // }
 
    // TODO: Constrain this
+   //       Add noexcept specification
    template<typename Visitor>
    constexpr auto visit(this const Self& self, Visitor&& visitor) -> decltype(auto)
    {
@@ -119,13 +120,23 @@ public:
          static constexpr auto compile_value = extract_enum_value<Enum>(enumer);
          if (self.value_ == compile_value) {
             std::forward<Visitor>(visitor)(Tag<compile_value>{});
+            return;
          }
       }
       std::unreachable();
    }
 };
 
-export template<typename Enum, Enum Value>
-using StrongEnumTag = StrongEnum<Enum>::template Tag<std::to_underlying(Value)>;
+template<auto>
+struct TagImpl;
+
+template<typename Enum, Enum Value>
+   requires(std::is_enum_v<Enum>)
+struct TagImpl<Value> {
+   using type = StrongEnum<Enum>::template Tag<std::to_underlying(Value)>;
+};
+
+export template<auto Value>
+using Tag = TagImpl<Value>::type;
 
 } // namespace khct
