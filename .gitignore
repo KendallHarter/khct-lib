@@ -1,0 +1,8 @@
+target/
+build/
+.idea/
+.vscode/
+build_tools/
+assets/non_git/
+
+cmake-build-*
