@@ -24,7 +24,7 @@ target_sources(
          FILE_SET CXX_MODULES
          FILES
             src/main_module.cppm
-            src/submodules/strong_enum.cppm
+            src/submodules/named_variant.cppm
             src/submodules/helpers.cppm
 )
 
@@ -40,7 +40,7 @@ if("${KHCT_BUILD_TESTS}")
 
    FetchContent_MakeAvailable(Catch2)
 
-   add_executable(strong_enum_tests "tests/strong_enum.cpp")
-   target_link_libraries(strong_enum_tests PRIVATE khct Catch2::Catch2WithMain)
-   add_test(NAME strong_enum_tests COMMAND strong_enum_tests)
+   add_executable(named_variant_tests "tests/named_variant.cpp")
+   target_link_libraries(named_variant_tests PRIVATE khct Catch2::Catch2WithMain)
+   add_test(NAME named_variant_tests COMMAND named_variant_tests)
 endif()

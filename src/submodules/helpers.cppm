@@ -1,11 +1,35 @@
 module;
 
 #include <concepts>
+#include <flat_set>
+#include <meta>
+#include <random>
 #include <tuple>
+#include <utility>
 
 export module khct:helpers;
 
 namespace khct {
+
+// Use an external base so structured unbindings work
+template<typename... Ts>
+struct MakeTupleBase {
+   struct Base;
+   consteval
+   {
+      []<std::size_t... Is>(std::index_sequence<Is...>) {
+         std::meta::define_aggregate(
+            ^^Base, {std::meta::data_member_spec(^^Ts, {.name = "_", .no_unique_address = true})...});
+      }(std::index_sequence_for<Ts...>{});
+   }
+};
+
+export template<typename... Ts>
+struct Tuple : MakeTupleBase<Ts...>::Base {};
+
+template<typename Enumerator>
+[[nodiscard]] consteval auto extract_enum_value(const std::meta::info enum_val) -> std::underlying_type_t<Enumerator>
+{ return std::to_underlying(std::meta::extract<Enumerator>(std::meta::constant_of(enum_val))); }
 
 export template<std::equality_comparable... T>
 struct AnyOf {
@@ -35,5 +59,41 @@ export template<typename... Ts>
 struct OverloadSet : Ts... {
    using Ts::operator()...;
 };
+
+export template<typename T, typename Prng>
+   requires std::is_enum_v<T> && std::uniform_random_bit_generator<std::remove_cvref_t<Prng>>
+[[nodiscard]] constexpr auto generate_equally_weighted_enum_value(Prng&& prng) noexcept(noexcept(prng())) -> T
+{
+   // Gather up all the values and then pick one among them
+   static constexpr auto enum_values = [] {
+      std::flat_set<std::underlying_type_t<T>> values;
+      for (const auto& enum_val : std::meta::enumerators_of(^^T)) {
+         values.insert(extract_enum_value<T>(enum_val));
+      }
+      return std::define_static_array(values);
+   }();
+
+   return static_cast<T>(enum_values[std::uniform_int_distribution<std::size_t>{0, enum_values.size() - 1}(prng)]);
+}
+
+export template<typename...>
+struct TypeStruct {};
+
+export template<typename... Ts>
+constexpr auto type = TypeStruct<Ts...>{};
+
+template<std::ranges::input_range R>
+   requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<R>>, std::meta::info>
+[[nodiscard]] consteval auto all_satisfy_concept(R&& range, const std::meta::info to_fulfill) -> bool
+{
+   for (auto&& info : range) {
+      const auto sub = std::meta::substitute(to_fulfill, {info});
+      if (!std::meta::extract<bool>(sub)) {
+         return false;
+      }
+   }
+
+   return true;
+}
 
 } // namespace khct

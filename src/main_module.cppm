@@ -2,5 +2,5 @@ module;
 
 export module khct;
 
-export import :strong_enum;
+export import :named_variant;
 export import :helpers;
