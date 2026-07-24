@@ -160,9 +160,10 @@ public:
    // This is internal to the enum so that each NamedVariant has its own tag type
    // This prevents passing tag types from other NamedVariant instances
    template<std::underlying_type_t<Enum> Value>
-   struct Tag : [ : enum_val_to_info(Enum{Value}).union_type : ] {
-      // I don't know why this is required BUT it makes me mad
+   // clang-format off
+   struct Tag : [:enum_val_to_info(Enum{Value}).union_type:] {
    };
+   // clang-format on
 
    template<std::underlying_type_t<Enum> Value>
    constexpr explicit(false) NamedVariant(Tag<Value> val) noexcept : storage_{Dummy{}}, value_{Value}
