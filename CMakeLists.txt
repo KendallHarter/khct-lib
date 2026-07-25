@@ -2,14 +2,12 @@ cmake_minimum_required(VERSION 4.0)
 
 project(khct_lib)
 
-set(CMAKE_CXX_STANDARD 26)
-set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
 option(KHCT_BUILD_TESTS "If tests should be built or not" FALSE)
 
 add_library(khct)
 add_library(khct::khct ALIAS khct)
+
+target_compile_features(khct PUBLIC cxx_std_26)
 
 # Add -freflection if GCC
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
