@@ -54,9 +54,6 @@ template<std::meta::info Enumerator>
 export template<typename Info>
 concept IsValidForNamedVariant = is_valid_for_named_enum<^^Info>();
 
-template<auto>
-struct TD;
-
 export template<typename Enum>
    requires IsValidForNamedVariant<Enum>
 struct NamedVariant {
@@ -69,28 +66,61 @@ private:
    struct Dummy {};
    union UnionStorage;
 
-   consteval
-   {
-      std::vector union_fields{std::meta::data_member_spec(^^Dummy, {.name = "_"})};
+   static constexpr auto union_field_args = [] {
+      std::vector<std::pair<std::vector<std::meta::info>, std::string_view>> union_fields;
       for (const auto& entry : enumerators) {
-         std::meta::info union_field_type_to_add = ^^Tuple<>;
+         std::vector<std::meta::info> union_fields_to_add{};
          for (const auto& annotation : std::meta::annotations_of(entry)) {
             const auto anno_type = std::meta::type_of(annotation);
             if (std::meta::has_template_arguments(anno_type) && std::meta::template_of(anno_type) == ^^TypeStruct) {
-               union_field_type_to_add = std::meta::substitute(^^Tuple, std::meta::template_arguments_of(anno_type));
+               union_fields_to_add = std::meta::template_arguments_of(anno_type);
                break;
             }
          }
-         union_fields.push_back(
-            std::meta::data_member_spec(union_field_type_to_add, {.name = std::meta::identifier_of(entry)}));
+         union_fields.push_back(std::pair{union_fields_to_add, std::meta::identifier_of(entry)});
       }
-      std::meta::define_aggregate(^^UnionStorage, union_fields);
+      return std::define_static_array(union_fields | std::views::transform([](const auto& x) {
+                                         const auto storage = std::define_static_array(x.first);
+                                         return Tuple{
+                                            storage.data(), storage.size(), std::define_static_string(x.second)};
+                                      }));
+   }();
+
+   static consteval auto calc_tag_base(const Enum Value) -> std::meta::info
+   {
+      for (const auto& [enum_entry, union_info] : std::views::zip(enumerators, union_field_args)) {
+         if (Value == std::meta::extract<Enum>(std::meta::constant_of(enum_entry))) {
+            const auto [ptr, len, _] = union_info;
+            return std::meta::substitute(^^Tuple, std::span{ptr, len});
+         }
+      }
+      std::unreachable();
    }
 
+public:
+   // This is internal to the enum so that each NamedVariant has its own tag type
+   // This prevents passing tag types from other NamedVariant instances
+   // clang-format off
+   template<Enum Value>
+   struct Tag : [:calc_tag_base(Value):] {};
+   // clang-format on
+
+   consteval
+   {
+      std::vector storage_args{std::meta::data_member_spec(^^Dummy, {.name = "_"})};
+      for (const auto& enum_info : std::meta::enumerators_of(^^Enum)) {
+         storage_args.push_back(
+            std::meta::data_member_spec(
+               std::meta::substitute(^^Tag, {std::meta::constant_of(enum_info)}),
+               {.name = std::meta::identifier_of(enum_info)}));
+      }
+      std::meta::define_aggregate(^^UnionStorage, storage_args);
+   }
+
+private:
    struct TypeInfo {
       std::meta::info union_member;
       std::meta::info union_type;
-      std::meta::info union_ref_type;
    };
 
    // Have to kinda iterate twice to solve this, unfortunately
@@ -104,10 +134,10 @@ private:
          const auto union_type = std::meta::type_of(union_field);
          value_to_tuple_type.insert(
             {extract_enum_value<Enum>(enum_entry),
-             {.union_member = union_field,
-              .union_type = union_type,
-              // adding the rvalue reference effectively forwards it
-              .union_ref_type = std::meta::add_rvalue_reference(union_type)}});
+             {
+                .union_member = union_field,
+                .union_type = union_type,
+             }});
       }
       return std::define_static_array(value_to_tuple_type);
    }();
@@ -132,7 +162,7 @@ private:
    }
 
    template<typename SelfT>
-   constexpr auto assign_union_to(this SelfT&& self, Self& other)
+   constexpr void assign_union_to(this SelfT&& self, Self& other)
    {
       template for (constexpr auto enumer : enumerators)
       {
@@ -153,21 +183,19 @@ private:
       std::unreachable();
    }
 
-   [[no_unique_address]] UnionStorage storage_;
+   [[no_unique_address]] UnionStorage storage_ = UnionStorage{Dummy{}};
    std::underlying_type_t<Enum> value_;
 
 public:
-   // This is internal to the enum so that each NamedVariant has its own tag type
-   // This prevents passing tag types from other NamedVariant instances
-   template<std::underlying_type_t<Enum> Value>
-   // clang-format off
-   struct Tag : [:enum_val_to_info(Enum{Value}).union_type:] {
-   };
-   // clang-format on
+   template<Enum Value>
+   constexpr explicit(false) NamedVariant(const Tag<Value>& val) noexcept
+      : storage_{Dummy{}}, value_{std::to_underlying(Value)}
+   { std::construct_at(&storage_.[:enum_val_to_info(Value).union_member:], val); }
 
-   template<std::underlying_type_t<Enum> Value>
-   constexpr explicit(false) NamedVariant(Tag<Value> val) noexcept : storage_{Dummy{}}, value_{Value}
-   { std::construct_at(&storage_.[:enum_val_to_info(Enum{Value}).union_member:], val); }
+   template<Enum Value>
+   constexpr explicit(false) NamedVariant(Tag<Value>&& val) noexcept
+      : storage_{Dummy{}}, value_{std::to_underlying(Value)}
+   { std::construct_at(&storage_.[:enum_val_to_info(Value).union_member:], std::move(val)); }
 
    template<Enum Value>
       requires(enum_value_is_named(Value))
@@ -189,6 +217,25 @@ public:
    auto operator=(const NamedVariant&) -> NamedVariant& = default;
    auto operator=(NamedVariant&&) -> NamedVariant& = default;
 
+   ~NamedVariant()
+      requires(all_satisfy_concept(union_types, ^^std::is_trivially_destructible_v))
+   = default;
+
+   constexpr ~NamedVariant()
+      requires(!all_satisfy_concept(union_types, ^^std::is_trivially_destructible_v))
+   {
+      template for (constexpr auto enumer : enumerators)
+      {
+         static constexpr auto compile_value = extract_enum_value<Enum>(enumer);
+         if (value_ == compile_value) {
+            static constexpr auto enum_value = Enum{compile_value};
+            std::destroy_at(&storage_.[:enum_val_to_info(enum_value).union_member:]);
+            return;
+         }
+      }
+      std::unreachable();
+   }
+
    // TODO: Conditionally support == and <=>
 
    // TODO: Constrain this
@@ -201,24 +248,28 @@ public:
          static constexpr auto compile_value = extract_enum_value<Enum>(enumer);
          if (self.value_ == compile_value) {
             static constexpr auto enum_value = Enum{compile_value};
-            return std::forward<Visitor>(visitor)(Tag<compile_value>{
-               std::forward_like<SelfT>(self.storage_.[:enum_val_to_info(enum_value).union_member:])});
+            return std::forward<Visitor>(visitor)(self.storage_.[:enum_val_to_info(enum_value).union_member:]);
          }
       }
       std::unreachable();
    }
+
+   // Disallow certain things because of compiler limitations
+   static_assert(
+      all_satisfy_concept(union_types, ^^std::is_trivially_destructible_v),
+      "All types must be trivially destructible until trivial unions are implemented");
 };
 
 template<auto>
-struct TagImpl;
+struct TagAliasImpl;
 
 template<typename Enum, Enum Value>
    requires(std::is_enum_v<Enum>)
-struct TagImpl<Value> {
-   using type = NamedVariant<Enum>::template Tag<std::to_underlying(Value)>;
+struct TagAliasImpl<Value> {
+   using type = NamedVariant<Enum>::template Tag<Value>;
 };
 
 export template<auto Value>
-using Tag = TagImpl<Value>::type;
+using Tag = TagAliasImpl<Value>::type;
 
 } // namespace khct

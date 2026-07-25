@@ -11,7 +11,7 @@ export module khct:helpers;
 
 namespace khct {
 
-// Use an external base so structured unbindings work
+// Use an external base so structured bindings work
 template<typename... Ts>
 struct MakeTupleBase {
    struct Base;
@@ -26,6 +26,9 @@ struct MakeTupleBase {
 
 export template<typename... Ts>
 struct Tuple : MakeTupleBase<Ts...>::Base {};
+
+export template<typename... Ts>
+Tuple(Ts...) -> Tuple<std::remove_cvref_t<Ts>...>;
 
 template<typename Enumerator>
 [[nodiscard]] consteval auto extract_enum_value(const std::meta::info enum_val) -> std::underlying_type_t<Enumerator>

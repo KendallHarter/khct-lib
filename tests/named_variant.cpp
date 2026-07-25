@@ -7,17 +7,6 @@ import khct;
 
 namespace {
 
-enum struct TestA {
-   value0,
-   value2 = 2
-};
-
-enum struct TestB {
-   value0[[= khct::type<int>]],
-   value1[[= khct::type<int, int>]],
-   value3[[= khct::type<>]] = 3
-};
-
 template<std::integral T>
 constexpr auto to_str(const T value) noexcept -> std::string
 {
@@ -30,6 +19,11 @@ constexpr auto to_str(const T value) noexcept -> std::string
 
 TEST_CASE("NamedVariant is compile time compatible", "[named_variant]")
 {
+   enum struct TestA {
+      value0,
+      value2 = 2
+   };
+
    static constexpr auto visitor
       = khct::OverloadSet{[](khct::Tag<TestA::value0>) { return 1; }, [](khct::Tag<TestA::value2>) { return 2; }};
    static constexpr khct::NamedVariant<TestA> strong1{khct::Tag<TestA::value0>{}};
@@ -42,6 +36,12 @@ TEST_CASE("NamedVariant is compile time compatible", "[named_variant]")
 
 TEST_CASE("Destructuring values works", "[named_variant]")
 {
+   enum struct TestB {
+      value0[[= khct::type<int>]],
+      value1[[= khct::type<int, int>]],
+      value3[[= khct::type<>]] = 3
+   };
+
    static constexpr auto visitor = khct::OverloadSet{
       [](const khct::Tag<TestB::value0>& vals) {
          const auto& [x] = vals;
@@ -58,4 +58,31 @@ TEST_CASE("Destructuring values works", "[named_variant]")
    STATIC_REQUIRE(strong0.visit(visitor) == "0");
    STATIC_REQUIRE(strong1.visit(visitor) == "3");
    STATIC_REQUIRE(strong3.visit(visitor) == ":O");
+}
+
+TEST_CASE("Moving", "[named_variant]")
+{
+   struct MoveOnly {
+      MoveOnly() = default;
+      MoveOnly(const MoveOnly&) = delete;
+      auto operator=(const MoveOnly&) -> MoveOnly& = delete;
+      MoveOnly(MoveOnly&&) = default;
+      auto operator=(MoveOnly&&) -> MoveOnly& = default;
+
+      int some_val = 0;
+   };
+
+   enum struct MoveOnlyTest {
+      val[[= khct::type<MoveOnly>]]
+   };
+   auto test = khct::NamedVariant<MoveOnlyTest>{khct::Tag<MoveOnlyTest::val>{}};
+   auto test2 = std::move(test);
+   test2.visit([](khct::Tag<MoveOnlyTest::val>& v) {
+      auto& [val] = v;
+      val.some_val += 1;
+   });
+   test2.visit([](khct::Tag<MoveOnlyTest::val>& v) {
+      auto& [val] = v;
+      REQUIRE(val.some_val == 1);
+   });
 }
