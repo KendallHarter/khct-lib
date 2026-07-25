@@ -13,6 +13,22 @@ import :helpers;
 
 namespace khct {
 
+template<typename T>
+concept NoThrowEqualityComparable = requires(const T& val) {
+   { val == val } noexcept -> std::convertible_to<bool>;
+};
+
+template<typename T>
+concept NoThrowThreewayComparable = requires(const T& val) {
+   { val <=> val } noexcept;
+};
+
+template<typename...>
+struct TypeStruct {};
+
+export template<typename... Ts>
+constexpr auto type = TypeStruct<Ts...>{};
+
 template<std::meta::info Enumerator>
 [[nodiscard]] consteval auto is_valid_for_named_enum() -> bool
 {
@@ -57,6 +73,12 @@ concept IsValidForNamedVariant = is_valid_for_named_enum<^^Info>();
 template<typename T, typename... Args>
 concept NothrowInvocable = std::is_nothrow_invocable_v<T, Args...>;
 
+// Dummy struct so that UnionStorage is always default initializable
+struct Dummy {
+   friend auto operator==(const Dummy&, const Dummy&) -> bool = default;
+   friend auto operator<=>(const Dummy&, const Dummy&) -> std::strong_ordering = default;
+};
+
 export template<typename Enum>
    requires IsValidForNamedVariant<Enum>
 struct NamedVariant {
@@ -65,8 +87,6 @@ private:
 
    static constexpr auto enumerators = std::define_static_array(std::meta::enumerators_of(^^Enum));
 
-   // Dummy struct so that UnionStorage is always default initializable
-   struct Dummy {};
    union UnionStorage;
 
    static constexpr auto union_field_args = [] {
@@ -128,7 +148,7 @@ private:
 
    // Have to kinda iterate twice to solve this, unfortunately
    static constexpr auto enum_value_to_info_array = [] {
-      std::flat_map<std::underlying_type_t<Enum>, TypeInfo> value_to_tuple_type;
+      std::flat_map<Enum, TypeInfo> value_to_tuple_type;
       // drop the first element as it is always the Dummy field
       const auto union_fields
          = std::meta::nonstatic_data_members_of(^^UnionStorage, std::meta::access_context::current())
@@ -136,7 +156,7 @@ private:
       for (const auto& [enum_entry, union_field] : std::views::zip(enumerators, union_fields)) {
          const auto union_type = std::meta::type_of(union_field);
          value_to_tuple_type.insert(
-            {extract_enum_value<Enum>(enum_entry),
+            {std::meta::extract<Enum>(std::meta::constant_of(enum_entry)),
              {
                 .union_member = union_field,
                 .union_type = union_type,
@@ -145,34 +165,47 @@ private:
       return std::define_static_array(value_to_tuple_type);
    }();
 
+   // Drop the Dummy field
    static constexpr auto union_members = std::define_static_array(
-      std::meta::nonstatic_data_members_of(^^UnionStorage, std::meta::access_context::current()));
+      std::meta::nonstatic_data_members_of(^^UnionStorage, std::meta::access_context::current()) | std::views::drop(1));
 
    static constexpr auto union_types
       = std::define_static_array(union_members | std::views::transform(std::meta::type_of));
 
+   // Can't eagerly evaluate this (because <=> could be undefined)
+   // So consteval it late
+   [[nodiscard]] static consteval auto calc_union_three_way_types() -> auto
+   {
+      return std::define_static_array(union_types | std::views::transform([](const auto& x) {
+                                         return std::meta::substitute(^^std::compare_three_way_result_t, {x, x});
+                                      }));
+   }
+
    template<typename T>
    [[nodiscard]] static consteval auto forward_union_types() -> std::vector<std::meta::info>
    {
-      // drop the Dummy field
-      auto one_dropped = union_types | std::views::drop(1);
       if (std::is_lvalue_reference_v<T>) {
-         return one_dropped | std::views::transform(std::meta::add_lvalue_reference) | std::ranges::to<std::vector>();
+         return union_types | std::views::transform(std::meta::add_lvalue_reference) | std::ranges::to<std::vector>();
       }
-      return one_dropped | std::views::transform(std::meta::add_rvalue_reference) | std::ranges::to<std::vector>();
+      return union_types | std::views::transform(std::meta::add_rvalue_reference) | std::ranges::to<std::vector>();
    }
 
    [[nodiscard]] static consteval auto enum_value_is_named(const Enum enum_value) -> bool
    {
-      return std::ranges::contains(
-         enum_value_to_info_array, std::to_underlying(enum_value), [&](const auto& x) { return x.first; });
+      return std::ranges::contains(enum_value_to_info_array, enum_value, [&](const auto& x) { return x.first; });
    }
 
    [[nodiscard]] static consteval auto enum_val_to_info(const Enum enum_value) -> TypeInfo
    {
-      return std::ranges::find(
-                enum_value_to_info_array, std::to_underlying(enum_value), [&](const auto& x) { return x.first; })
-         ->second;
+      for (const auto& i : std::views::indices(enum_value_to_info_array.size())) {
+         if (enum_value_to_info_array[i].first == enum_value) {
+            return enum_value_to_info_array[i].second;
+         }
+      }
+      std::unreachable();
+      // return std::ranges::find(
+      //           enum_value_to_info_array, enum_value, [&](const auto& x) { return x.first; })
+      //    ->second;
    }
 
    template<typename SelfT>
@@ -202,13 +235,12 @@ private:
 
 public:
    template<Enum Value>
-   constexpr explicit(false) NamedVariant(const Tag<Value>& val) noexcept
+   constexpr explicit NamedVariant(const Tag<Value>& val) noexcept
       : storage_{Dummy{}}, value_{std::to_underlying(Value)}
    { std::construct_at(&storage_.[:enum_val_to_info(Value).union_member:], val); }
 
    template<Enum Value>
-   constexpr explicit(false) NamedVariant(Tag<Value>&& val) noexcept
-      : storage_{Dummy{}}, value_{std::to_underlying(Value)}
+   constexpr explicit NamedVariant(Tag<Value>&& val) noexcept : storage_{Dummy{}}, value_{std::to_underlying(Value)}
    { std::construct_at(&storage_.[:enum_val_to_info(Value).union_member:], std::move(val)); }
 
    template<Enum Value>
@@ -250,7 +282,48 @@ public:
       std::unreachable();
    }
 
-   // TODO: Conditionally support == and <=>
+   friend constexpr auto operator==(const NamedVariant& lhs, const NamedVariant& rhs) noexcept(
+      all_satisfy_concept(union_types, ^^NoThrowEqualityComparable)) -> bool
+   // This doesn't compile which appears to be a bug in GCC so disable this check at the moment
+   // requires(all_satisfy_concept(union_types, ^^std::equality_comparable))
+   {
+      if (lhs.value_ != rhs.value_) {
+         return false;
+      }
+      template for (constexpr auto enumer : enumerators)
+      {
+         static constexpr auto compile_value = extract_enum_value<Enum>(enumer);
+         if (lhs.value_ == compile_value) {
+            static constexpr auto enum_value = Enum{compile_value};
+            static constexpr auto member = enum_val_to_info(enum_value).union_member;
+            return lhs.storage_.[:member:] == rhs.storage_.[:member:];
+         }
+      }
+      std::unreachable();
+   }
+
+   // use auto because the constraint doesn't work at the moment and need to
+   // defer the type of <=> (which might not exist)
+   friend constexpr auto operator<=>(const NamedVariant& lhs, const NamedVariant& rhs) noexcept(
+      all_satisfy_concept(union_types, ^^NoThrowThreewayComparable)) -> auto
+   // This doesn't compile which appears to be a bug in GCC so disable this check at the moment
+   // requires(all_satisfy_concept(union_types, ^^std::three_way_comparable))
+   {
+      using return_type = [:std::meta::substitute(^^std::common_comparison_category_t, calc_union_three_way_types()):];
+      if (lhs.value_ != rhs.value_) {
+         return static_cast<return_type>(lhs.value_ <=> rhs.value_);
+      }
+      template for (constexpr auto enumer : enumerators)
+      {
+         static constexpr auto compile_value = extract_enum_value<Enum>(enumer);
+         if (lhs.value_ == compile_value) {
+            static constexpr auto enum_value = Enum{compile_value};
+            static constexpr auto member = enum_val_to_info(enum_value).union_member;
+            return static_cast<return_type>(lhs.storage_.[:member:] <=> rhs.storage_.[:member:]);
+         }
+      }
+      std::unreachable();
+   }
 
    template<typename SelfT, typename Visitor>
       requires(all_satisfy_partial_concept(forward_union_types<SelfT>(), partial_concept<^^std::invocable, Visitor>))

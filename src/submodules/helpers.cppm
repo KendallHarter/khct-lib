@@ -11,25 +11,6 @@ export module khct:helpers;
 
 namespace khct {
 
-// Use an external base so structured bindings work
-template<typename... Ts>
-struct MakeTupleBase {
-   struct Base;
-   consteval
-   {
-      []<std::size_t... Is>(std::index_sequence<Is...>) {
-         std::meta::define_aggregate(
-            ^^Base, {std::meta::data_member_spec(^^Ts, {.name = "_", .no_unique_address = true})...});
-      }(std::index_sequence_for<Ts...>{});
-   }
-};
-
-export template<typename... Ts>
-struct Tuple : MakeTupleBase<Ts...>::Base {};
-
-export template<typename... Ts>
-Tuple(Ts...) -> Tuple<std::remove_cvref_t<Ts>...>;
-
 template<typename Enumerator>
 [[nodiscard]] consteval auto extract_enum_value(const std::meta::info enum_val) -> std::underlying_type_t<Enumerator>
 { return std::to_underlying(std::meta::extract<Enumerator>(std::meta::constant_of(enum_val))); }
@@ -79,12 +60,6 @@ export template<typename T, typename Prng>
    return static_cast<T>(enum_values[std::uniform_int_distribution<std::size_t>{0, enum_values.size() - 1}(prng)]);
 }
 
-export template<typename...>
-struct TypeStruct {};
-
-export template<typename... Ts>
-constexpr auto type = TypeStruct<Ts...>{};
-
 template<std::ranges::input_range R>
    requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<R>>, std::meta::info>
 [[nodiscard]] consteval auto all_satisfy_concept(R&& range, const std::meta::info to_fulfill) -> bool
@@ -119,5 +94,65 @@ template<std::meta::info Concept, typename... Ts>
    requires(std::meta::is_concept(Concept))
 constexpr auto partial_concept
    = []<typename... Us> static { return std::meta::extract<bool>(std::meta::substitute(Concept, {^^Ts..., ^^Us...})); };
+
+// Use an external base so structured bindings work
+template<typename... Ts>
+struct MakeTupleBase {
+   struct Base;
+   consteval
+   {
+      []<std::size_t... Is>(std::index_sequence<Is...>) {
+         std::meta::define_aggregate(
+            ^^Base, {std::meta::data_member_spec(^^Ts, {.name = "_", .no_unique_address = true})...});
+      }(std::index_sequence_for<Ts...>{});
+   }
+};
+
+export template<typename... Ts>
+struct Tuple : MakeTupleBase<Ts...>::Base {
+private:
+   static constexpr auto fields = std::define_static_array(
+      std::meta::members_of(^^MakeTupleBase<Ts...>::Base, std::meta::access_context::current()));
+
+public:
+   template<std::size_t I, typename SelfT>
+      requires(I < sizeof...(Ts))
+   constexpr auto get(this SelfT&& self) -> decltype(auto)
+   { return self.[:fields[I]:]; }
+};
+
+export template<typename... Ts>
+Tuple(Ts...) -> Tuple<std::remove_cvref_t<Ts>...>;
+
+export template<typename... Ts, typename... Us>
+   requires(sizeof...(Ts) == sizeof...(Us)) && (std::equality_comparable_with<Ts, Us> && ...)
+constexpr auto operator==(const Tuple<Ts...>& lhs, const Tuple<Us...>& rhs) noexcept(
+   noexcept(((std::declval<Ts>() == std::declval<Us>()) && ...))) -> bool
+{
+   return [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+      return ((lhs.template get<Is>() == rhs.template get<Is>()) && ...);
+   }(std::index_sequence_for<Ts...>{});
+}
+
+export template<typename... Ts, typename... Us>
+   requires(sizeof...(Ts) == sizeof...(Us)) && (std::equality_comparable_with<Ts, Us> && ...)
+constexpr auto operator<=>(const Tuple<Ts...>& lhs, const Tuple<Us...>& rhs) noexcept(
+   noexcept(((std::declval<Ts>() == std::declval<Us>()) && ...)))
+   -> std::common_comparison_category_t<decltype(std::declval<Ts>() <=> std::declval<Us>())...>
+{
+   if constexpr (sizeof...(Ts) == 0) {
+      return std::strong_ordering::equal;
+   }
+   else {
+      static constexpr auto [... Is] = std::index_sequence_for<Ts...>{};
+      for (constexpr auto I : std::array{Is...}) {
+         const auto val = lhs.template get<I>() <=> rhs.template get<I>();
+         if (val != 0) {
+            return val;
+         }
+      }
+      return std::strong_ordering::equal;
+   }
+}
 
 } // namespace khct

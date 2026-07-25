@@ -27,8 +27,13 @@ TEST_CASE("NamedVariant is compile time compatible", "[named_variant]")
    static constexpr auto visitor
       = khct::OverloadSet{[](khct::Tag<TestA::value0>) { return 1; }, [](khct::Tag<TestA::value2>) { return 2; }};
    static constexpr khct::NamedVariant<TestA> strong1{khct::Tag<TestA::value0>{}};
+   STATIC_REQUIRE(strong1 == strong1);
+   STATIC_REQUIRE(strong1 == strong1);
+   STATIC_REQUIRE((strong1 <=> strong1) == 0);
+
    STATIC_REQUIRE(strong1.holds_tag<TestA::value0>());
    STATIC_REQUIRE(strong1.visit(visitor) == 1);
+
    static constexpr auto strong2 = strong1;
    STATIC_REQUIRE(strong2.holds_tag<TestA::value0>());
    STATIC_REQUIRE(strong2.visit(visitor) == 1);
