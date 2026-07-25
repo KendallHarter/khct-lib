@@ -4,6 +4,7 @@ module;
 #include <flat_map>
 #include <flat_set>
 #include <meta>
+#include <optional>
 #include <ranges>
 #include <utility>
 
@@ -147,7 +148,7 @@ private:
    };
 
    // Have to kinda iterate twice to solve this, unfortunately
-   static constexpr auto enum_value_to_info_array = [] {
+   static constexpr auto enum_val_to_info_array = [] {
       std::flat_map<Enum, TypeInfo> value_to_tuple_type;
       // drop the first element as it is always the Dummy field
       const auto union_fields
@@ -192,12 +193,12 @@ private:
 
    [[nodiscard]] static consteval auto enum_value_is_named(const Enum enum_value) -> bool
    {
-      return std::ranges::contains(enum_value_to_info_array, enum_value, [&](const auto& x) { return x.first; });
+      return std::ranges::contains(enum_val_to_info_array, enum_value, [&](const auto& x) { return x.first; });
    }
 
    [[nodiscard]] static consteval auto enum_val_to_info(const Enum enum_value) -> TypeInfo
    {
-      return std::ranges::find(enum_value_to_info_array, enum_value, [&](const auto& x) { return x.first; })->second;
+      return std::ranges::find(enum_val_to_info_array, enum_value, [&](const auto& x) { return x.first; })->second;
    }
 
    template<typename SelfT>
@@ -226,13 +227,15 @@ private:
    std::underlying_type_t<Enum> value_;
 
 public:
+   // These are both implicit to allow NamedVariant = Tag<> syntax
    template<Enum Value>
-   constexpr explicit NamedVariant(const Tag<Value>& val) noexcept
+   constexpr explicit(false) NamedVariant(const Tag<Value>& val) noexcept
       : storage_{Dummy{}}, value_{std::to_underlying(Value)}
    { std::construct_at(&storage_.[:enum_val_to_info(Value).union_member:], val); }
 
    template<Enum Value>
-   constexpr explicit NamedVariant(Tag<Value>&& val) noexcept : storage_{Dummy{}}, value_{std::to_underlying(Value)}
+   constexpr explicit(false) NamedVariant(Tag<Value>&& val) noexcept
+      : storage_{Dummy{}}, value_{std::to_underlying(Value)}
    { std::construct_at(&storage_.[:enum_val_to_info(Value).union_member:], std::move(val)); }
 
    template<Enum Value>
@@ -332,6 +335,20 @@ public:
          }
       }
       std::unreachable();
+   }
+
+   constexpr auto held_tag_id(this const Self& self) noexcept -> Enum { return Enum{self.value_}; }
+
+   constexpr auto holds_tag(this const Self& self, const Enum e) noexcept -> bool { return Enum{self.value_} == e; }
+
+   template<Enum E, typename SelfT>
+   constexpr auto get_if(this SelfT&& self) noexcept
+      -> std::optional<decltype(std::forward_like<SelfT>(std::declval<Tag<E>>()))>
+   {
+      if (self.holds_tag(E)) {
+         return self.storage_.[:enum_val_to_info(E).union_member:];
+      }
+      return std::nullopt;
    }
 
    // Disallow certain things because of compiler limitations

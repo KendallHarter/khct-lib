@@ -111,14 +111,15 @@ struct MakeTupleBase {
 export template<typename... Ts>
 struct Tuple : MakeTupleBase<Ts...>::Base {
 private:
-   static constexpr auto fields = std::define_static_array(
-      std::meta::members_of(^^MakeTupleBase<Ts...>::Base, std::meta::access_context::current()));
+   using Base = MakeTupleBase<Ts...>::Base;
+   static constexpr auto fields
+      = std::define_static_array(std::meta::members_of(^^Base, std::meta::access_context::current()));
 
 public:
    template<std::size_t I, typename SelfT>
       requires(I < sizeof...(Ts))
    constexpr auto get(this SelfT&& self) -> decltype(auto)
-   { return self.[:fields[I]:]; }
+   { return std::forward_like<SelfT>(self.[:fields[I]:]); }
 };
 
 export template<typename... Ts>
