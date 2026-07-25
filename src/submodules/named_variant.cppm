@@ -54,6 +54,9 @@ template<std::meta::info Enumerator>
 export template<typename Info>
 concept IsValidForNamedVariant = is_valid_for_named_enum<^^Info>();
 
+template<typename T, typename... Args>
+concept NothrowInvocable = std::is_nothrow_invocable_v<T, Args...>;
+
 export template<typename Enum>
    requires IsValidForNamedVariant<Enum>
 struct NamedVariant {
@@ -86,7 +89,7 @@ private:
                                       }));
    }();
 
-   static consteval auto calc_tag_base(const Enum Value) -> std::meta::info
+   [[nodiscard]] static consteval auto calc_tag_base(const Enum Value) -> std::meta::info
    {
       for (const auto& [enum_entry, union_info] : std::views::zip(enumerators, union_field_args)) {
          if (Value == std::meta::extract<Enum>(std::meta::constant_of(enum_entry))) {
@@ -147,6 +150,17 @@ private:
 
    static constexpr auto union_types
       = std::define_static_array(union_members | std::views::transform(std::meta::type_of));
+
+   template<typename T>
+   [[nodiscard]] static consteval auto forward_union_types() -> std::vector<std::meta::info>
+   {
+      // drop the Dummy field
+      auto one_dropped = union_types | std::views::drop(1);
+      if (std::is_lvalue_reference_v<T>) {
+         return one_dropped | std::views::transform(std::meta::add_lvalue_reference) | std::ranges::to<std::vector>();
+      }
+      return one_dropped | std::views::transform(std::meta::add_rvalue_reference) | std::ranges::to<std::vector>();
+   }
 
    [[nodiscard]] static consteval auto enum_value_is_named(const Enum enum_value) -> bool
    {
@@ -238,17 +252,18 @@ public:
 
    // TODO: Conditionally support == and <=>
 
-   // TODO: Constrain this
-   //       Add noexcept specification
    template<typename SelfT, typename Visitor>
-   constexpr auto visit(this SelfT&& self, Visitor&& visitor) -> decltype(auto)
+      requires(all_satisfy_partial_concept(forward_union_types<SelfT>(), partial_concept<^^std::invocable, Visitor>))
+   constexpr auto visit(this SelfT&& self, Visitor&& visitor) noexcept(all_satisfy_partial_concept(
+      forward_union_types<SelfT>(), partial_concept<^^NothrowInvocable, Visitor>)) -> decltype(auto)
    {
       template for (constexpr auto enumer : enumerators)
       {
          static constexpr auto compile_value = extract_enum_value<Enum>(enumer);
          if (self.value_ == compile_value) {
             static constexpr auto enum_value = Enum{compile_value};
-            return std::forward<Visitor>(visitor)(self.storage_.[:enum_val_to_info(enum_value).union_member:]);
+            return std::forward<Visitor>(visitor)(
+               std::forward_like<SelfT>(self.storage_.[:enum_val_to_info(enum_value).union_member:]));
          }
       }
       std::unreachable();

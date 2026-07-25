@@ -39,7 +39,7 @@ TEST_CASE("Destructuring values works", "[named_variant]")
    enum struct TestB {
       value0[[= khct::type<int>]],
       value1[[= khct::type<int, int>]],
-      value3[[= khct::type<>]] = 3
+      value3[[= khct::type<>]] = 3,
    };
 
    static constexpr auto visitor = khct::OverloadSet{
@@ -52,6 +52,7 @@ TEST_CASE("Destructuring values works", "[named_variant]")
          return to_str(x1 + x2);
       },
       [](khct::Tag<TestB::value3>) { return std::string{":O"}; }};
+
    static constexpr auto strong0 = khct::NamedVariant<TestB>{khct::Tag<TestB::value0>{0}};
    static constexpr auto strong1 = khct::NamedVariant<TestB>{khct::Tag<TestB::value1>{1, 2}};
    static constexpr auto strong3 = khct::NamedVariant<TestB>{khct::Tag<TestB::value3>{}};

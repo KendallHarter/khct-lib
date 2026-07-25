@@ -89,7 +89,7 @@ template<std::ranges::input_range R>
    requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<R>>, std::meta::info>
 [[nodiscard]] consteval auto all_satisfy_concept(R&& range, const std::meta::info to_fulfill) -> bool
 {
-   for (auto&& info : range) {
+   for (const auto& info : range) {
       const auto sub = std::meta::substitute(to_fulfill, {info});
       if (!std::meta::extract<bool>(sub)) {
          return false;
@@ -98,5 +98,26 @@ template<std::ranges::input_range R>
 
    return true;
 }
+
+template<std::ranges::input_range R, typename T>
+   requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<R>>, std::meta::info>
+[[nodiscard]] consteval auto all_satisfy_partial_concept(R&& range, T) -> bool
+{
+   for (const auto& info : range) {
+      const auto sub = std::meta::substitute(^^T::operator(), {info});
+      const auto func = std::meta::extract<bool (*)()>(sub);
+      if (!func()) {
+         return false;
+      }
+   }
+
+   return true;
+}
+
+// GCC doesn't support concept parameters yet so pass a reflection of one instead
+template<std::meta::info Concept, typename... Ts>
+   requires(std::meta::is_concept(Concept))
+constexpr auto partial_concept
+   = []<typename... Us> static { return std::meta::extract<bool>(std::meta::substitute(Concept, {^^Ts..., ^^Us...})); };
 
 } // namespace khct
