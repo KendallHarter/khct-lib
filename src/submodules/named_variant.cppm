@@ -197,15 +197,7 @@ private:
 
    [[nodiscard]] static consteval auto enum_val_to_info(const Enum enum_value) -> TypeInfo
    {
-      for (const auto& i : std::views::indices(enum_value_to_info_array.size())) {
-         if (enum_value_to_info_array[i].first == enum_value) {
-            return enum_value_to_info_array[i].second;
-         }
-      }
-      std::unreachable();
-      // return std::ranges::find(
-      //           enum_value_to_info_array, enum_value, [&](const auto& x) { return x.first; })
-      //    ->second;
+      return std::ranges::find(enum_value_to_info_array, enum_value, [&](const auto& x) { return x.first; })->second;
    }
 
    template<typename SelfT>
