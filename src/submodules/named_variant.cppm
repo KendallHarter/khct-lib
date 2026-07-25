@@ -15,12 +15,12 @@ import :helpers;
 namespace khct {
 
 template<typename T>
-concept NoThrowEqualityComparable = requires(const T& val) {
+concept no_throw_equality_comparable = requires(const T& val) {
    { val == val } noexcept -> std::convertible_to<bool>;
 };
 
 template<typename T>
-concept NoThrowThreewayComparable = requires(const T& val) {
+concept no_throw_threeway_comparable_comparable = requires(const T& val) {
    { val <=> val } noexcept;
 };
 
@@ -69,10 +69,10 @@ template<std::meta::info Enumerator>
 }
 
 export template<typename Info>
-concept IsValidForNamedVariant = is_valid_for_named_enum<^^Info>();
+concept is_valid_for_named_variant = is_valid_for_named_enum<^^Info>();
 
 template<typename T, typename... Args>
-concept NothrowInvocable = std::is_nothrow_invocable_v<T, Args...>;
+concept no_throw_invocable = std::is_nothrow_invocable_v<T, Args...>;
 
 // Dummy struct so that UnionStorage is always default initializable
 struct Dummy {
@@ -81,7 +81,7 @@ struct Dummy {
 };
 
 export template<typename Enum>
-   requires IsValidForNamedVariant<Enum>
+   requires is_valid_for_named_variant<Enum>
 struct NamedVariant {
 private:
    using Self = NamedVariant;
@@ -278,7 +278,7 @@ public:
    }
 
    friend constexpr auto operator==(const NamedVariant& lhs, const NamedVariant& rhs) noexcept(
-      all_satisfy_concept(union_types, ^^NoThrowEqualityComparable)) -> bool
+      all_satisfy_concept(union_types, ^^no_throw_equality_comparable)) -> bool
    // This doesn't compile which appears to be a bug in GCC so disable this check at the moment
    // requires(all_satisfy_concept(union_types, ^^std::equality_comparable))
    {
@@ -300,7 +300,7 @@ public:
    // use auto because the constraint doesn't work at the moment and need to
    // defer the type of <=> (which might not exist)
    friend constexpr auto operator<=>(const NamedVariant& lhs, const NamedVariant& rhs) noexcept(
-      all_satisfy_concept(union_types, ^^NoThrowThreewayComparable)) -> auto
+      all_satisfy_concept(union_types, ^^no_throw_threeway_comparable_comparable)) -> auto
    // This doesn't compile which appears to be a bug in GCC so disable this check at the moment
    // requires(all_satisfy_concept(union_types, ^^std::three_way_comparable))
    {
@@ -323,7 +323,7 @@ public:
    template<typename SelfT, typename Visitor>
       requires(all_satisfy_partial_concept(forward_union_types<SelfT>(), partial_concept<^^std::invocable, Visitor>))
    constexpr auto visit(this SelfT&& self, Visitor&& visitor) noexcept(all_satisfy_partial_concept(
-      forward_union_types<SelfT>(), partial_concept<^^NothrowInvocable, Visitor>)) -> decltype(auto)
+      forward_union_types<SelfT>(), partial_concept<^^no_throw_invocable, Visitor>)) -> decltype(auto)
    {
       template for (constexpr auto enumer : enumerators)
       {
