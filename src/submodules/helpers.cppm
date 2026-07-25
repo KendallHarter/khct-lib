@@ -136,7 +136,7 @@ constexpr auto operator==(const Tuple<Ts...>& lhs, const Tuple<Us...>& rhs) noex
 }
 
 export template<typename... Ts, typename... Us>
-   requires(sizeof...(Ts) == sizeof...(Us)) && (std::equality_comparable_with<Ts, Us> && ...)
+   requires(sizeof...(Ts) == sizeof...(Us)) && (std::three_way_comparable_with<Ts, Us> && ...)
 constexpr auto operator<=>(const Tuple<Ts...>& lhs, const Tuple<Us...>& rhs) noexcept(
    noexcept(((std::declval<Ts>() <=> std::declval<Us>()) && ...)))
    -> std::common_comparison_category_t<decltype(std::declval<Ts>() <=> std::declval<Us>())...>
